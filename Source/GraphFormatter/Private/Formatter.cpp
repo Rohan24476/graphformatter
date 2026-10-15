@@ -36,12 +36,19 @@ static inline FCompatibleVector2 CompatibleVector2(FVector2D const& V)
 #ifdef GRAPH_FORMATTER_HACK
 #include "PrivateAccessor.h"
 
-DECLARE_PRIVATE_MEMBER_ACCESSOR(FAccess_SGraphPanel_ZoomLevels, SNodePanel, TUniquePtr<FZoomLevelsContainer>, ZoomLevels)
+// UE 5.8 holds SNodePanel::ZoomLevels in a TSharedPtr; earlier versions use a TUniquePtr.
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8)
+typedef TSharedPtr<FZoomLevelsContainer> FCompatibleZoomLevelsPtr;
+#else
+typedef TUniquePtr<FZoomLevelsContainer> FCompatibleZoomLevelsPtr;
+#endif
+
+DECLARE_PRIVATE_MEMBER_ACCESSOR(FAccess_SGraphPanel_ZoomLevels, SNodePanel, FCompatibleZoomLevelsPtr, ZoomLevels)
 DECLARE_PRIVATE_MEMBER_ACCESSOR(FAccess_SGraphNodeResizable_UserSize, SGraphNodeResizable, FCompatibleDeprecateSlateVector2D, UserSize);
 DECLARE_PRIVATE_MEMBER_ACCESSOR(FAccess_SNodePanel_CurrentLOD, SNodePanel, EGraphRenderingLOD::Type, CurrentLOD);
 
-static TUniquePtr<FZoomLevelsContainer> TopZoomLevels;
-static TUniquePtr<FZoomLevelsContainer> TempZoomLevels;
+static FCompatibleZoomLevelsPtr TopZoomLevels;
+static FCompatibleZoomLevelsPtr TempZoomLevels;
 static EGraphRenderingLOD::Type OldLOD;
 
 class FTopZoomLevelContainer : public FZoomLevelsContainer
@@ -54,6 +61,15 @@ public:
     virtual int32 GetDefaultZoomLevel() const override { return 0; }
     virtual EGraphRenderingLOD::Type GetLOD(int32 InZoomLevel) const override { return EGraphRenderingLOD::DefaultDetail; }
 };
+
+static FCompatibleZoomLevelsPtr MakeTopZoomLevels()
+{
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8)
+    return MakeShared<FTopZoomLevelContainer>();
+#else
+    return MakeUnique<FTopZoomLevelContainer>();
+#endif
+}
 
 // Tick all nodes manually
 static void TickWidgetRecursively(SWidget* Widget)
@@ -77,7 +93,7 @@ void FFormatter::SetZoomLevelTo11Scale() const
 {
     if (!TopZoomLevels.IsValid())
     {
-        TopZoomLevels = MakeUnique<FTopZoomLevelContainer>();
+        TopZoomLevels = MakeTopZoomLevels();
     }
     auto& ZoomLevels = CurrentPanel->*FPrivateAccessor<FAccess_SGraphPanel_ZoomLevels>::Member;
     TempZoomLevels = MoveTemp(ZoomLevels);
@@ -100,7 +116,7 @@ void FFormatter::RestoreZoomLevel() const
 {
     if (!TopZoomLevels.IsValid())
     {
-        TopZoomLevels = MakeUnique<FTopZoomLevelContainer>();
+        TopZoomLevels = MakeTopZoomLevels();
     }
     auto& ZoomLevels = CurrentPanel->*FPrivateAccessor<FAccess_SGraphPanel_ZoomLevels>::Member;
     ZoomLevels = MoveTemp(TempZoomLevels);
